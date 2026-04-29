@@ -159,6 +159,7 @@ namespace TextureSetFixer
                     var modelCopy = modelled.Model.DeepCopy();
                     if (FixModel(modelCopy))
                     {
+                        Console.WriteLine($"Patch {record.Record.EditorID}");
                         var recordCopy = (IModeled)record.GetOrAddAsOverride(state.PatchMod);
                         recordCopy.Model = modelCopy;
                     }
