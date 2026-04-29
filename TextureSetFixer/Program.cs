@@ -9,8 +9,6 @@ using Mutagen.Bethesda.Archives;
 using nifly;
 using System.IO;
 using Noggog;
-using Mutagen.Bethesda.Plugins.Assets;
-using Mutagen.Bethesda.Skyrim.Assets;
 using Mutagen.Bethesda.Plugins.Order;
 
 namespace TextureSetFixer
@@ -21,8 +19,7 @@ namespace TextureSetFixer
     //  i.e, the nth BSTriShape in a model will have a 3D index of n - 1
     // The game uses a texture sets 3D index, even if it doesn't correspond to the same 3D name
 
-    using ModelLink = AssetLinkGetter<SkyrimModelAssetType>;
-    using ModelVfs = Dictionary<string, Lazy<NifFile>>;
+    using ModelLookup = Dictionary<string, Lazy<NifFile>>;
 
     public class Program
     {
@@ -52,32 +49,32 @@ namespace TextureSetFixer
         /// Loose files are prioritized over archives
         /// Paths are case insensitive and relative to the data folder
         /// </summary>
-        public static ModelVfs BuildModelVfs(ILoadOrderGetter<IModListing<ISkyrimModGetter>> loadOrder, string dataFolderPath)
+        public static ModelLookup BuildModelLookup(ILoadOrderGetter<IModListing<ISkyrimModGetter>> loadOrder, string dataFolderPath)
         {
             // Archives. Keep last
-            ModelVfs vfs = Archive.GetApplicableArchivePaths(GameRelease.SkyrimSE, dataFolderPath, loadOrder.Select(mod => mod.Value.ModKey.FileName))
+            var lookup = loadOrder.Keys.SelectMany(mod => Archive.GetApplicableArchivePaths(GameRelease.SkyrimSE, dataFolderPath, mod))
                 .Select(path => Archive.CreateReader(GameRelease.SkyrimSE, path))
                 .SelectMany(archive => archive.Files)
                 .Reverse()
                 .Where(file => file.Path.EndsWith(".nif"))
                 .DistinctBy(file => file.Path)
-                .ToDictionary(file => new ModelLink(file.Path).DataRelativePath, file => new Lazy<NifFile>(() => LoadNif(file.GetBytes())), StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(file => file.Path, file => new Lazy<NifFile>(() => LoadNif(file.GetBytes())), StringComparer.OrdinalIgnoreCase);
 
             // Loose files
             foreach (var file in Directory.EnumerateFiles(dataFolderPath, "*.nif", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(dataFolderPath, file);
 
-                vfs[new ModelLink(relative).DataRelativePath] = new(() => LoadNif(File.ReadAllBytes(file)));
+                lookup[relative] = new(() => LoadNif(File.ReadAllBytes(file)));
             }
 
-            return vfs;
+            return lookup;
         }
 
         public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             Console.WriteLine("Building VFS for models");
-            var vfs = BuildModelVfs(state.LoadOrder, state.DataFolderPath);
+            var vfs = BuildModelLookup(state.LoadOrder, state.DataFolderPath);
 
             Console.WriteLine("Processing");
 
@@ -104,7 +101,7 @@ namespace TextureSetFixer
                 if (model?.AlternateTextures == null)
                     return false;
 
-                var nif = vfs[model.File.DataRelativePath].Value;
+                var nif = vfs[model.File.DataRelativePath.Path].Value;
                 var indexTo3dName = nif.GetShapeNames();
 
                 bool edited = false;
