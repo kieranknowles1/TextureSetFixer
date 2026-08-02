@@ -102,9 +102,32 @@ namespace TextureSetFixer
                     return false;
 
                 var nif = vfs[model.File.DataRelativePath.Path].Value;
-                var indexTo3dName = nif.GetShapeNames();
 
+                vectorNiObject tree = new();
+                nif.GetTree(tree);
                 bool edited = false;
+
+                var shapes = nif.GetShapes().Select(s => nif.GetBlockID(s)).ToArray();
+                var shapeNames = nif.GetShapeNames();
+
+                string FindShapeName(uint index)
+                {
+                    for (int i = 0; i < index; i++)
+                    {
+                        if (shapes[i] == index)
+                            return shapeNames[i];
+                    }
+                    throw new ArgumentException();
+                }
+
+                var indexTo3dName = tree.ToArray().Where(n => n is NiTriShape || n is BSTriShape)
+                    // FIXME: This is ugly and stupid, but nif.GetNodeName doesn't work
+                    .Select(n =>
+                    {
+                        var index = nif.GetBlockID(n);
+                        return FindShapeName(index);
+                    })
+                    .ToList();
 
                 // This loop may add to AlternateTextures if the model was partitioned
                 var originalAltTextures = model.AlternateTextures.ToList();
